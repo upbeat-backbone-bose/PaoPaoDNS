@@ -15,8 +15,16 @@
 # (alpine:edge, no pinned tag, supply-chain risk). See
 # .audit-docs/docs/audit-orchestration.md P0-5/P0-6/P0-7.
 ARG ALPINE_VERSION=3.21
+
+# Pull pre-compiled binaries from the multi-arch prebuild image.
+# BuildKit does not support variable expansion in `COPY --from=`,
+# so we use a dedicated FROM stage that re-references the ARG. See
+# https://github.com/moby/buildkit/blob/master/frontend/dockerfile/docs/syntax.md#from
+# "variable expansion is not supported for --from". The FROM below
+# consumes the same ARG and creates a real build stage.
 ARG PREBUILD_TAG=3.21
 ARG PREBUILD_IMAGE=ghcr.io/upbeat-backbone-bose/prebuild-paopaodns:${PREBUILD_TAG}
+FROM ${PREBUILD_IMAGE} AS prebuilt
 
 # ----- Stage: builder (assembles all artifacts into /src) -----
 FROM alpine:${ALPINE_VERSION} AS builder
@@ -24,10 +32,11 @@ RUN apk update && apk upgrade --no-cache
 #actions COPY build_test_ok /
 COPY src/ /src/
 # Pull pre-compiled binaries (unbound, mosdns) from the multi-arch
-# prebuild image. buildx resolves this per TARGETPLATFORM.
-COPY --from=${PREBUILD_IMAGE} /prebuild-out/unbound /src/unbound
-COPY --from=${PREBUILD_IMAGE} /prebuild-out/unbound-checkconf /src/unbound-checkconf
-COPY --from=${PREBUILD_IMAGE} /prebuild-out/mosdns /src/mosdns
+# prebuild stage. buildx resolves this per TARGETPLATFORM via the
+# prebuilt stage's manifest list.
+COPY --from=prebuilt /prebuild-out/unbound /src/unbound
+COPY --from=prebuilt /prebuild-out/unbound-checkconf /src/unbound-checkconf
+COPY --from=prebuilt /prebuild-out/mosdns /src/mosdns
 RUN sh /src/build.sh
 # build file check
 RUN cp /src/Country-only-cn-private.mmdb.xz /tmp/ &&\
