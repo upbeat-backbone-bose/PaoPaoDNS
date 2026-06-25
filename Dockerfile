@@ -1,7 +1,12 @@
-# Pinned to a specific alpine minor version for reproducible builds.
-# alpine:edge breaks reproducibility and pulls in unreviewed packages.
-ARG ALPINE_VERSION=3.21
-FROM alpine:${ALPINE_VERSION} AS builder
+# NOTE: This Dockerfile still pulls prebuilt binaries (unbound, mosdns,
+# redis-server) from sliamb/prebuild-paopaodns. Those binaries are linked
+# against alpine:edge's hiredis 1.3.0 and OpenSSL, so the runtime stage
+# must use the same alpine:edge to keep the ABI compatible.
+#
+# Reverting from alpine:3.21 to alpine:edge here; full fix is P0-7 in
+# .audit-docs/docs/audit-orchestration.md (build prebuild binaries
+# inside this repo on alpine:3.21 so the main image can drop edge).
+FROM alpine:edge AS builder
 RUN apk update && \
     apk upgrade --no-cache
 #actions COPY build_test_ok /
@@ -40,9 +45,9 @@ RUN if /src/mosdns version|grep kkkgo;then echo mosdns_check > /mosdns_check;els
 RUN if /src/unbound -V|grep libhiredis;then echo unbound_check > /unbound_check;else cp /unbound_check /tmp/;fi
 RUN if /src/redis-server -v|grep build;then echo redis_check > /redis_check;else cp /redis_check /tmp/;fi
 
-# Runtime stage also pinned to the same alpine version. The `apk upgrade` here
-# pulls in any post-pin security updates within the minor line (e.g. 3.21.x).
-FROM alpine:${ALPINE_VERSION}
+# Runtime stage mirrors builder's alpine:edge to match hiredis 1.3.0 ABI.
+# Full fix tracked in P0-7 (build prebuild binaries in-repo on alpine 3.21).
+FROM alpine:edge
 COPY --from=builder /src/ /usr/sbin/
 RUN apk update && \
     apk upgrade --no-cache && \
