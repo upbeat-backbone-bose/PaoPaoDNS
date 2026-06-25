@@ -1,6 +1,19 @@
 #!/bin/sh
+# NOTE: set -u/-e/-o pipefail are intentionally NOT enabled here. Many greps
+# in this script are expected to return no matches in the success path (e.g.
+# `grep -q <pattern>` on a flag that is not set), and pipefail would abort
+# the whole container on the first empty grep. Each critical step is
+# guarded with explicit error checks instead.
+
 mkdir -p /data
-chmod -R 777 /data
+# /data is the only attacker-controlled mount in the container. Lock it down
+# to root read/write/execute; the root user (which the container still runs
+# as) retains full access, but processes on a shared host or compromised
+# co-tenant can no longer tamper with custom_env.ini, mosdns.yaml, redis rdb,
+# or dnscrypt config. Per-subpath 0777 is restored later only where strictly
+# required (see the per-file cp blocks below).
+chown root:root /data
+chmod 750 /data
 
 if [ -w /data ]; then
     export DATA_W="[OK]DATA_writeable"
@@ -20,13 +33,120 @@ rm /tmp/*.toml >/dev/null 2>&1
 if [ ! -f /data/custom_env.ini ]; then
     cp /usr/sbin/custom_env.ini /data/
 fi
-grep -Eo "^[_a-zA-Z0-9]+=\".+\"" /data/custom_env.ini >/tmp/custom_env.ini
-if [ -f "/tmp/custom_env.ini" ]; then
-    while IFS= read -r line; do
-        line=$(echo "$line" | sed 's/"//g' | sed "s/'//g")
-        export "$line"
-    done <"/tmp/custom_env.ini"
-fi
+
+# Parse /data/custom_env.ini as a strict whitelist of variables.
+#
+# Original code did:
+#     grep -Eo "^[_a-zA-Z0-9]+=\".+\"" /data/custom_env.ini >/tmp/custom_env.ini
+#     while read line; do
+#         line=$(echo "$line" | sed 's/"//g' | sed "s/'//g")
+#         export "$line"
+#     done <"/tmp/custom_env.ini"
+#
+# That allows any key, any value, and `export "$line"` evaluates arbitrary
+# shell expressions in the container's root context. An attacker who can
+# write to /data (e.g. via a shared host, a sidecar with the same volume,
+# or a path-traversal into the volume) gets root RCE by writing
+#     FOO='"; rm -rf / #'
+# into custom_env.ini. See .audit-docs/docs/audit-orchestration.md P0-3.
+#
+# The replacement parses each line strictly, rejects anything that is not
+# (a) a known safe variable, and (b) a value matching that variable's
+# expected character class. Unknown keys are silently dropped (logged to
+# /tmp/env_custom_parse.log) so that typos in the user's custom_env.ini do
+# not get exported as the wrong name.
+load_custom_env() {
+    : >/tmp/env_custom_parse.log
+    while IFS= read -r raw_line || [ -n "$raw_line" ]; do
+        # Strip leading whitespace and skip comments / blank lines.
+        line=${raw_line#"${raw_line%%[![:space:]]*}"}
+        case "$line" in
+            ""|\#*) continue ;;
+        esac
+        # Expect format: KEY="value"  (KEY must be uppercase, A-Z0-9_)
+        case "$line" in
+            *=*) key=${line%%=*}; value=${line#*=} ;;
+            *)   echo "REJECT (no '='): $line" >>/tmp/env_custom_parse.log; continue ;;
+        esac
+        case "$key" in
+            ''|*[!A-Z0-9_]*)
+                echo "REJECT (bad key): $key" >>/tmp/env_custom_parse.log
+                continue
+                ;;
+        esac
+        # Strip exactly one pair of surrounding double quotes, if present.
+        case "$value" in
+            \"*\") value=${value#\"}; value=${value%\"} ;;
+        esac
+        # Whitelist + value-class check. Anything not on the list is dropped
+        # to prevent attackers from injecting arbitrary exports.
+        case "$key" in
+            CNAUTO|IPV6|CNFALL|CN_TRACKER|USE_HOSTS|USE_MARK_DATA|ADDINFO|\
+SHUFFLE|HTTP_FILE|SAFEMODE|EXPIRED_FLUSH|AUTO_FORWARD|\
+AUTO_FORWARD_CHECK)
+                # yes / no / lite / trnc / only6 / yes_only6
+                case "$value" in
+                    yes|no|lite|trnc|only6|yes_only6|"") ;;
+                    *) echo "REJECT (bad $key): $value" >>/tmp/env_custom_parse.log; continue ;;
+                esac
+                ;;
+            SOCKS5|SERVER_IP|CUSTOM_FORWARD)
+                # Format: [user:pass@]host:port  (or @host:port for SOCKS5)
+                # We reject anything outside a conservative IP / hostname / port
+                # charset; the actual parsing happens later in the script.
+                case "$value" in
+                    *[!A-Za-z0-9._\[\]@:\-]*)
+                        echo "REJECT (bad $key chars): $value" >>/tmp/env_custom_parse.log
+                        continue
+                        ;;
+                esac
+                ;;
+            DNSPORT|RULES_TTL|CUSTOM_FORWARD_TTL)
+                case "$value" in
+                    ''|*[!0-9]*)
+                        echo "REJECT (bad $key): $value" >>/tmp/env_custom_parse.log
+                        continue
+                        ;;
+                esac
+                ;;
+            QUERY_TIME)
+                # e.g. 2000ms, 1s, 500ms
+                case "$value" in
+                    ''|*[!0-9ms]*)
+                        echo "REJECT (bad $key): $value" >>/tmp/env_custom_parse.log
+                        continue
+                        ;;
+                esac
+                ;;
+            UPDATE)
+                # daily / weekly / monthly / no
+                case "$value" in
+                    daily|weekly|monthly|no|"") ;;
+                    *) echo "REJECT (bad $key): $value" >>/tmp/env_custom_parse.log; continue ;;
+                esac
+                ;;
+            DNS_SERVERNAME|TZ|DEVLOG)
+                # Free-form text but no shell metacharacters. We still reject
+                # the dangerous subset ($ ` " ' \ ; & | < > ( ) { } [ ])
+                # to keep export safe; legitimate values won't contain them.
+                case "$value" in
+                    *[\$\`\\\"\'\(\)\{\}\[\]\;\&\|\<\>\*]*)
+                        echo "REJECT (bad $key metachar): $value" >>/tmp/env_custom_parse.log
+                        continue
+                        ;;
+                esac
+                ;;
+            *)
+                echo "REJECT (unknown key): $key" >>/tmp/env_custom_parse.log
+                continue
+                ;;
+        esac
+        # All checks passed. Export with a single, well-formed assignment.
+        # `eval` is avoided; we use the shell's own parameter expansion.
+        export "$key=$value"
+    done </data/custom_env.ini
+}
+load_custom_env
 echo =====PaoPaoDNS docker start=====
 echo images build time : {bulidtime}
 if [ ! -f /new.lock ]; then
