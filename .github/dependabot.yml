@@ -1,11 +1,37 @@
 # To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
+# package ecosystems you want to monitor and where the package manifests are
+# located.
 # Please see the documentation for all configuration options:
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
 version: 2
+
+# Vendored Go sources for mosdns and unbound. dependabot tracks the
+# `go.mod` in each and opens PRs when upstream releases a fix.
 updates:
-  - package-ecosystem: "docker" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "gomod"
+    directory: "/vendors/mosdns"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+    ignore:
+      # Go toolchain directive in go.mod pulls in pre-release toolchains;
+      # dependabot does not understand pseudo-versions for golang.org/x/exp.
+      - dependency-name: "golang.org/x/exp"
+
+  - package-ecosystem: "gomod"
+    directory: "/vendors/unbound"
+    # unbound uses autotools, not go.mod; keep this block in case a
+    # vendored Go helper is added later. Safe to ignore otherwise.
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
