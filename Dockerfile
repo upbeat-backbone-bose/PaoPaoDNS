@@ -1,17 +1,55 @@
-# NOTE: This Dockerfile still pulls prebuilt binaries (unbound, mosdns,
-# redis-server) from sliamb/prebuild-paopaodns. Those binaries are linked
-# against alpine:edge's hiredis 1.3.0 and OpenSSL, so the runtime stage
-# must use the same alpine:edge to keep the ABI compatible.
-#
-# Reverting from alpine:3.21 to alpine:edge here; full fix is P0-7 in
-# .audit-docs/docs/audit-orchestration.md (build prebuild binaries
-# inside this repo on alpine:3.21 so the main image can drop edge).
-FROM alpine:edge AS builder
-RUN apk update && \
-    apk upgrade --no-cache
+# Pinned to alpine 3.21 for both the prebuild/builder and runtime stages.
+# This replaces the previous dependency on sliamb/prebuild-paopaodns
+# (which used alpine:edge and forced the main image to track edge too).
+# The prebuild step now runs in this same Dockerfile: we build unbound
+# and mosdns locally against alpine 3.21's libhiredis 1.2.0, so the
+# main image's runtime ABI matches. See .audit-docs/docs/audit-orchestration.md
+# P0-5/P0-6/P0-7.
+ARG ALPINE_VERSION=3.21
+
+# ----- Stage 1: prebuild (compiles unbound + mosdns on alpine 3.21) -----
+FROM alpine:${ALPINE_VERSION} AS prebuild
+RUN apk add --no-cache \
+        build-base flex byacc musl-dev gcc make git \
+        python3-dev swig libevent-dev openssl-dev expat-dev \
+        hiredis-dev go grep bind-tools
+WORKDIR /build
+# Pinned to release-1.25.1: see P0 (CVE-2026-44608 RPZ UAF and other
+# post-1.19.3 hardening fixes from Qifan Zhang @ PAN).
+RUN git clone --depth 1 --branch release-1.25.1 \
+        https://github.com/NLnetLabs/unbound.git /build/unbound
+WORKDIR /build/unbound
+RUN export CFLAGS="-O3" && \
+    ./configure --with-libevent --with-pthreads --with-libhiredis --enable-cachedb \
+        --disable-rpath --without-pythonmodule --disable-documentation \
+        --disable-flto --disable-maintainer-mode --disable-option-checking \
+        --with-pidfile=/tmp/unbound.pid \
+        --prefix=/usr --sysconfdir=/etc --localstatedir=/tmp \
+        --with-username=root --with-chroot-dir="" && \
+    make && make install
+RUN mkdir -p /prebuild-out && \
+    cp /usr/sbin/unbound /prebuild-out/unbound && \
+    cp /usr/sbin/unbound-checkconf /prebuild-out/unbound-checkconf
+
+# kkkgo/mosdns does not publish release tags; the binary identity check
+# in the main Dockerfile relies on the "kkkgo" prefix in the version
+# output. mosdns's go.mod requires Go >= 1.26.3; alpine 3.21's `go`
+# package is 1.23.x, so we let the Go toolchain auto-download the
+# required version. GOTOOLCHAIN=auto is the default for go >= 1.21
+# but the alpine package sets it to local; export it explicitly.
+WORKDIR /build
+RUN git clone --depth 1 https://github.com/kkkgo/mosdns /build/mosdns
+WORKDIR /build/mosdns
+RUN GOTOOLCHAIN=auto go build -ldflags "-s -w" -trimpath -o /prebuild-out/mosdns
+
+# ----- Stage 2: builder (assembles all artifacts into /src) -----
+FROM alpine:${ALPINE_VERSION} AS builder
+RUN apk update && apk upgrade --no-cache
 #actions COPY build_test_ok /
-COPY --from=sliamb/prebuild-paopaodns /src/ /src/
 COPY src/ /src/
+COPY --from=prebuild /prebuild-out/unbound /src/unbound
+COPY --from=prebuild /prebuild-out/unbound-checkconf /src/unbound-checkconf
+COPY --from=prebuild /prebuild-out/mosdns /src/mosdns
 RUN sh /src/build.sh
 # build file check
 RUN cp /src/Country-only-cn-private.mmdb.xz /tmp/ &&\
@@ -45,9 +83,8 @@ RUN if /src/mosdns version|grep kkkgo;then echo mosdns_check > /mosdns_check;els
 RUN if /src/unbound -V|grep libhiredis;then echo unbound_check > /unbound_check;else cp /unbound_check /tmp/;fi
 RUN if /src/redis-server -v|grep build;then echo redis_check > /redis_check;else cp /redis_check /tmp/;fi
 
-# Runtime stage mirrors builder's alpine:edge to match hiredis 1.3.0 ABI.
-# Full fix tracked in P0-7 (build prebuild binaries in-repo on alpine 3.21).
-FROM alpine:edge
+# ----- Stage 3: runtime -----
+FROM alpine:${ALPINE_VERSION}
 COPY --from=builder /src/ /usr/sbin/
 RUN apk update && \
     apk upgrade --no-cache && \
