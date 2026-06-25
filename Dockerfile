@@ -51,10 +51,16 @@ FROM alpine:edge
 COPY --from=builder /src/ /usr/sbin/
 RUN apk update && \
     apk upgrade --no-cache && \
-    apk add --no-cache ca-certificates dcron tzdata hiredis libevent dnscrypt-proxy inotify-tools bind-tools libgcc xz && \
-    mkdir -p /etc/unbound && \
+    apk add --no-cache ca-certificates dcron tzdata hiredis libevent dnscrypt-proxy inotify-tools bind-tools libgcc xz setpriv libcap && \
+    mkdir -p /etc/unbound /run/unbound && \
     mv /usr/sbin/named.cache /etc/unbound/named.cache && \
     adduser -D -H unbound && \
+    chown unbound:unbound /run/unbound && \
+    chmod 750 /run/unbound && \
+    # Grant the unbound binary CAP_NET_BIND_SERVICE so it can listen on
+    # port 53/TCP+UDP after we drop root and switch to the unbound user.
+    # Grant the same to mosdns for the same reason.
+    setcap cap_net_bind_service=+ep /usr/sbin/unbound /usr/sbin/mosdns && \
     mv /usr/sbin/repositories /etc/apk/repositories && \
     rm -rf /var/cache/apk/*
 ARG DEVLOG_SW
