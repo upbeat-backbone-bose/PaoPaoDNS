@@ -37,7 +37,7 @@ jobs:
             type=sha,prefix=sha-
             type=raw,value=dev,enable={{is_default_branch}}
       - name: Build and push (dev)
-        uses: docker/build-push-action@48aba3b46d1b1fec4febb7c5d0c644b249a11355 # v6.10.0
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           push: true
           platforms: linux/amd64
