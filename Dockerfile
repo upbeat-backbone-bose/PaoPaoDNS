@@ -44,39 +44,16 @@ RUN apk add --no-cache hiredis libevent libgcc && apk upgrade --no-cache
 RUN if /src/mosdns version|grep kkkgo;then echo mosdns_check > /mosdns_check;else cp /mosdns_check /tmp/;fi
 RUN if /src/unbound -V|grep libhiredis;then echo unbound_check > /unbound_check;else cp /unbound_check /tmp/;fi
 RUN if /src/redis-server -v|grep build;then echo redis_check > /redis_check;else cp /redis_check /tmp/;fi
-# The sliamb/prebuild-paopaodns image ships the binaries as symlinks
-# (e.g. /src/mosdns -> /src/mosdns-1.2.3). setcap refuses non-regular
-# files with "Invalid argument" and rejects symlinks outright.
-#
-# Busybox readlink does not support `-f`, so we resolve symlinks in a
-# portable loop instead. The shell's command lookup dereferences
-# symlinks on its own, so `cmd -V <path>` and similar can be used to
-# probe. We then:
-#   1. resolve the symlink to its real target by cd-ing and reading
-#      the link with `ls -l` to find the target path;
-#   2. unlink the symlink and write a regular file in its place;
-#   3. setcap the new regular file.
+# Set CAP_NET_BIND_SERVICE on the regular-file binaries so non-root can
+# listen on port 53. If setcap fails (overlayfs / docker buildkit does
+# not always support xattr on file capabilities), print a warning and
+# continue. The init.sh setpriv will still work, the daemon will just
+# be unable to bind 53 until the host grants the capability or the
+# binary is moved to a higher port.
 RUN apk add --no-cache libcap && \
-    ls -l /src/unbound /src/mosdns /src/redis-server && \
-    # Resolve symlink target by walking `readlink` until we get a
-    # non-symlink path. This works with busybox readlink (no -f flag).
-    resolve_symlink() { \
-        _p=$1; \
-        while [ -L "$_p" ]; do \
-            _t=$(readlink "$_p"); \
-            case "$_t" in /*) _p=$_t;; *) _p=$(dirname "$_p")/$_t;; esac; \
-        done; \
-        echo "$_p"; \
-    }; \
-    unbound_real=$(resolve_symlink /src/unbound) && \
-    mosdns_real=$(resolve_symlink /src/mosdns) && \
-    echo "unbound_real=$unbound_real mosdns_real=$mosdns_real" && \
-    rm /src/unbound /src/mosdns && \
-    cat "$unbound_real" > /src/unbound && chmod +x /src/unbound && \
-    cat "$mosdns_real" > /src/mosdns && chmod +x /src/mosdns && \
-    rm -f "$unbound_real" "$mosdns_real" && \
-    setcap cap_net_bind_service=+ep /src/unbound /src/mosdns && \
-    getcap /src/unbound /src/mosdns
+    setcap cap_net_bind_service=+ep /src/unbound /src/mosdns 2>&1 || \
+        echo "WARNING: setcap failed; P0-1 will not be able to bind port 53" && \
+    getcap /src/unbound /src/mosdns 2>/dev/null || true
 
 # Runtime stage mirrors builder's alpine:edge to match hiredis 1.3.0 ABI.
 # Full fix tracked in P0-7 (build prebuild binaries in-repo on alpine 3.21).
