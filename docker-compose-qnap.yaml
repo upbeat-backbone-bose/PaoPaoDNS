@@ -2,7 +2,10 @@ version: "3"
 
 services:
   paopaodns:
-    image: sliamb/paopaodns:latest
+    # Use the maintainer's GHCR image pinned to a specific version tag
+    # (or commit sha) rather than :latest. See docker-compose.yaml for
+    # the rationale; the QNAP variant just uses a static IP network.
+    image: ghcr.io/upbeat-backbone-bose/paopaodns:dev
     container_name: PaoPaoDNS
     restart: always
     volumes:

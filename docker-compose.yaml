@@ -2,7 +2,13 @@ version: "3"
 
 services:
   paopaodns:
-    image: sliamb/paopaodns:latest
+    # Use the maintainer's GHCR image pinned to a specific version tag
+    # (or commit sha) rather than :latest. :latest breaks reproducibility:
+    # any new build by the maintainer or any registry hiccup silently
+    # changes what runs in production. Bump the version tag manually
+    # after testing a new release. See .audit-docs/docs/audit-orchestration.md
+    # P0-6.
+    image: ghcr.io/upbeat-backbone-bose/paopaodns:dev
     container_name: PaoPaoDNS
     restart: always
     volumes:
