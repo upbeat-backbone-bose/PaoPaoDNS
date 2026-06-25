@@ -1,0 +1,4 @@
+
+# Vendored Go/C sources for upstream dependency upgrades and audits.
+# Re-cloned by CI on every build; not part of the project source.
+vendors/

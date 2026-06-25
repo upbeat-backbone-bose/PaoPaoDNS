@@ -1,4 +1,7 @@
-FROM alpine:edge AS builder
+# Pinned to a specific alpine minor version for reproducible builds.
+# alpine:edge breaks reproducibility and pulls in unreviewed packages.
+ARG ALPINE_VERSION=3.21
+FROM alpine:${ALPINE_VERSION} AS builder
 RUN apk update && \
     apk upgrade --no-cache
 #actions COPY build_test_ok /
@@ -37,7 +40,9 @@ RUN if /src/mosdns version|grep kkkgo;then echo mosdns_check > /mosdns_check;els
 RUN if /src/unbound -V|grep libhiredis;then echo unbound_check > /unbound_check;else cp /unbound_check /tmp/;fi
 RUN if /src/redis-server -v|grep build;then echo redis_check > /redis_check;else cp /redis_check /tmp/;fi
 
-FROM alpine:edge
+# Runtime stage also pinned to the same alpine version. The `apk upgrade` here
+# pulls in any post-pin security updates within the minor line (e.g. 3.21.x).
+FROM alpine:${ALPINE_VERSION}
 COPY --from=builder /src/ /usr/sbin/
 RUN apk update && \
     apk upgrade --no-cache && \
