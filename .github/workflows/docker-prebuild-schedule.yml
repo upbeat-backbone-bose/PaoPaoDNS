@@ -24,11 +24,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push (prebuild)
+        # Builds the prebuild-paopaodns/ subtree of this repo on
+        # alpine 3.21 (matches the main image's libhiredis ABI).
+        # See .audit-docs/docs/audit-orchestration.md P0-5/P0-7.
+        # Tags: :3.21 (pinned for the main Dockerfile's COPY --from=)
+        #       :latest (rolling)
+        #       :sha-<gitsha> (immutable, for rollback)
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           push: true
           context: "{{defaultContext}}:prebuild-paopaodns"
           platforms: linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8,linux/ppc64le,linux/s390x
-          tags: ghcr.io/${{ github.repository_owner }}/prebuild-paopaodns:latest
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/prebuild-paopaodns:3.21
+            ghcr.io/${{ github.repository_owner }}/prebuild-paopaodns:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -1,4 +1,4 @@
-FROM alpine:edge AS builder
+FROM alpine:3.21 AS builder
 COPY build.sh /src/
 RUN sh /src/build.sh
 # JUST CHECK
