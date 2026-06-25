@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 
 # add tools
 apk update
@@ -34,5 +35,10 @@ git clone https://github.com/kkkgo/mosdns --depth 1 /mosdns-build
 cd /mosdns-build || exit
 GOTOOLCHAIN=auto go build -ldflags "-s -w" -trimpath -o /src/mosdns
 
-#clean
-rm /src/build.sh
+# No final cleanup needed: the Dockerfile that calls this script
+# (prebuild-paopaodns/Dockerfile) ignores everything in /src/ and
+# explicitly moves the three compiled binaries to /prebuild-out/. The
+# original `rm /src/build.sh` here was for the old single-stage
+# `COPY --from=builder /src/ /src/` design and broke the multi-stage
+# build when this script was relocated to /build/ (it would error
+# on `rm /src/build.sh` because no such file exists in /src/).
