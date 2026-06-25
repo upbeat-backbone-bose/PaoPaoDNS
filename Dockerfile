@@ -44,16 +44,6 @@ RUN apk add --no-cache hiredis libevent libgcc && apk upgrade --no-cache
 RUN if /src/mosdns version|grep kkkgo;then echo mosdns_check > /mosdns_check;else cp /mosdns_check /tmp/;fi
 RUN if /src/unbound -V|grep libhiredis;then echo unbound_check > /unbound_check;else cp /unbound_check /tmp/;fi
 RUN if /src/redis-server -v|grep build;then echo redis_check > /redis_check;else cp /redis_check /tmp/;fi
-# Set CAP_NET_BIND_SERVICE on the regular-file binaries so non-root can
-# listen on port 53. If setcap fails (overlayfs / docker buildkit does
-# not always support xattr on file capabilities), print a warning and
-# continue. The init.sh setpriv will still work, the daemon will just
-# be unable to bind 53 until the host grants the capability or the
-# binary is moved to a higher port.
-RUN apk add --no-cache libcap && \
-    setcap cap_net_bind_service=+ep /src/unbound /src/mosdns 2>&1 || \
-        echo "WARNING: setcap failed; P0-1 will not be able to bind port 53" && \
-    getcap /src/unbound /src/mosdns 2>/dev/null || true
 
 # Runtime stage mirrors builder's alpine:edge to match hiredis 1.3.0 ABI.
 # Full fix tracked in P0-7 (build prebuild binaries in-repo on alpine 3.21).
@@ -61,16 +51,10 @@ FROM alpine:edge
 COPY --from=builder /src/ /usr/sbin/
 RUN apk update && \
     apk upgrade --no-cache && \
-    apk add --no-cache ca-certificates dcron tzdata hiredis libevent dnscrypt-proxy inotify-tools bind-tools libgcc xz setpriv libcap && \
-    mkdir -p /etc/unbound /run/unbound && \
+    apk add --no-cache ca-certificates dcron tzdata hiredis libevent dnscrypt-proxy inotify-tools bind-tools libgcc xz && \
+    mkdir -p /etc/unbound && \
     mv /usr/sbin/named.cache /etc/unbound/named.cache && \
     adduser -D -H unbound && \
-    chown unbound:unbound /run/unbound && \
-    chmod 750 /run/unbound && \
-    # CAP_NET_BIND_SERVICE was already set on the binaries in the builder
-    # stage (see RUN above). Setting it in the runtime stage hits
-    # "Invalid argument" on overlayfs; builder-stage xattrs survive
-    # the COPY --from=builder into the final image.
     mv /usr/sbin/repositories /etc/apk/repositories && \
     rm -rf /var/cache/apk/*
 ARG DEVLOG_SW

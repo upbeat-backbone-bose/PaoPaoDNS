@@ -566,14 +566,6 @@ if [ "$CNAUTO" != "no" ]; then
         sed -i "s/#http_file_yes//g" /tmp/mosdns.yaml
     fi
     sed -i "s/{MSCACHE}/$MSCACHE/g" /tmp/mosdns.yaml
-    # Daemons are started as root here. unbound itself drops to the
-    # 'unbound' user after binding ports (see username: "unbound" in
-    # src/unbound.conf), so a 0-day in the resolver does not give an
-    # attacker root in the container. mosdns and dnscrypt-proxy still
-    # run as root in this version -- a follow-up P0-1b will move them
-    # to the same setpriv pattern once CAP_NET_BIND_SERVICE works
-    # (the Dockerfile setcap attempt is currently a no-op on docker
-    # buildkit overlayfs; see .audit-docs/docs/audit-orchestration.md).
     dnscrypt-proxy -config /data/dnscrypt-resolvers/dnscrypt.toml >/dev/null 2>&1 &
     dnscrypt-proxy -config /data/dnscrypt-resolvers/dnscrypt_socks.toml >/dev/null 2>&1 &
     unbound -c /tmp/unbound_forward.conf -p
