@@ -20,6 +20,11 @@ export CFLAGS="-O3"
     --prefix=/usr --sysconfdir=/etc --localstatedir=/tmp --with-username=root --with-chroot-dir=""
 make
 make install
+# Move compiled binaries to /src/. Some alpine packages create an /src
+# directory in their post-install hooks, so ensure the destination
+# is writable and free of stale entries. `rm -f` is safe if absent.
+mkdir -p /src
+rm -f /src/unbound /src/unbound-checkconf
 mv /usr/sbin/unbound /src/
 mv /usr/sbin/unbound-checkconf /src/
 
@@ -28,8 +33,8 @@ mv /usr/sbin/unbound-checkconf /src/
 # in Dockerfile relies on the kkkgo prefix, so we follow upstream master.
 # mosdns's go.mod requires Go >= 1.26.3; alpine 3.21's `go` package is
 # 1.23.x, so we must let the Go toolchain auto-download the required
-# version. GOTOOLCHAIN=auto is the default for `go` >= 1.21 but the
-# alpine package sets it to `local`; export it explicitly.
+# version. GOTOOLCHAIN=auto is the default for go >= 1.21 but the
+# alpine package sets it to local; export it explicitly.
 mkdir -p /mosdns-build
 git clone https://github.com/kkkgo/mosdns --depth 1 /mosdns-build
 cd /mosdns-build || exit
