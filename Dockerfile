@@ -44,13 +44,23 @@ RUN apk add --no-cache hiredis libevent libgcc && apk upgrade --no-cache
 RUN if /src/mosdns version|grep kkkgo;then echo mosdns_check > /mosdns_check;else cp /mosdns_check /tmp/;fi
 RUN if /src/unbound -V|grep libhiredis;then echo unbound_check > /unbound_check;else cp /unbound_check /tmp/;fi
 RUN if /src/redis-server -v|grep build;then echo redis_check > /redis_check;else cp /redis_check /tmp/;fi
-# Set CAP_NET_BIND_SERVICE on unbound and mosdns in the builder stage so the
-# xattr is recorded in the image layer. Setting it later in the runtime
-# stage runs into "Invalid argument" because the runtime stage's COPY of
-# /src/ may land on a read-only or otherwise xattr-restricted layer.
-# apk add libcap first so the setcap binary is available.
+# The sliamb/prebuild-paopaodns image ships the binaries as symlinks
+# (e.g. /src/mosdns -> /src/mosdns-1.2.3). setcap refuses non-regular
+# files with "Invalid argument" and rejects symlinks outright. We
+# therefore:
+#   1. resolve each symlink to its real target path with readlink -f;
+#   2. mv the real target onto the symlink path (rename, keeps the
+#      same inode and the existing xattr support);
+#   3. setcap the now-regular file in place.
+# mv across the same filesystem preserves the inode, so docker layer
+# xattr semantics carry the capability through to the runtime stage.
 RUN apk add --no-cache libcap && \
-    setcap cap_net_bind_service=+ep /src/unbound /src/mosdns
+    unbound_real=$(readlink -f /src/unbound) && \
+    mosdns_real=$(readlink -f /src/mosdns) && \
+    mv "$unbound_real" /src/unbound && \
+    mv "$mosdns_real" /src/mosdns && \
+    setcap cap_net_bind_service=+ep /src/unbound /src/mosdns && \
+    getcap /src/unbound /src/mosdns
 
 # Runtime stage mirrors builder's alpine:edge to match hiredis 1.3.0 ABI.
 # Full fix tracked in P0-7 (build prebuild binaries in-repo on alpine 3.21).
