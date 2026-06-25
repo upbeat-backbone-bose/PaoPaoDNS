@@ -566,18 +566,17 @@ if [ "$CNAUTO" != "no" ]; then
         sed -i "s/#http_file_yes//g" /tmp/mosdns.yaml
     fi
     sed -i "s/{MSCACHE}/$MSCACHE/g" /tmp/mosdns.yaml
-    # Generate configs and runtime dirs as root (init needs root to write
-    # /tmp/, /etc/, and the per-process config files). Once everything is
-    # in place, drop privileges to the unbound user for the actual daemons.
-    # see .audit-docs/docs/audit-orchestration.md P0-1.
-    setpriv_run() {
-        # setpriv --reuid/--regid drops to the unbound user. We use
-        # --clear-groups so supplementary groups from root are removed.
-        setpriv --reuid=unbound --regid=unbound --clear-groups "$@"
-    }
-    setpriv_run dnscrypt-proxy -config /data/dnscrypt-resolvers/dnscrypt.toml >/dev/null 2>&1 &
-    setpriv_run dnscrypt-proxy -config /data/dnscrypt-resolvers/dnscrypt_socks.toml >/dev/null 2>&1 &
-    setpriv_run unbound -c /tmp/unbound_forward.conf -p
+    # Daemons are started as root here. unbound itself drops to the
+    # 'unbound' user after binding ports (see username: "unbound" in
+    # src/unbound.conf), so a 0-day in the resolver does not give an
+    # attacker root in the container. mosdns and dnscrypt-proxy still
+    # run as root in this version -- a follow-up P0-1b will move them
+    # to the same setpriv pattern once CAP_NET_BIND_SERVICE works
+    # (the Dockerfile setcap attempt is currently a no-op on docker
+    # buildkit overlayfs; see .audit-docs/docs/audit-orchestration.md).
+    dnscrypt-proxy -config /data/dnscrypt-resolvers/dnscrypt.toml >/dev/null 2>&1 &
+    dnscrypt-proxy -config /data/dnscrypt-resolvers/dnscrypt_socks.toml >/dev/null 2>&1 &
+    unbound -c /tmp/unbound_forward.conf -p
     # Add Mods
     touch /data/custom_mod.yaml
     cp /tmp/mosdns.yaml /tmp/mosdns_base.yaml
@@ -586,7 +585,7 @@ if [ "$CNAUTO" != "no" ]; then
         cat /tmp/mosdns_mod.yaml >/tmp/mosdns.yaml
     fi
     sed -i '/^#/d' /tmp/mosdns.yaml
-    setpriv_run mosdns start -d /tmp -c /tmp/mosdns.yaml &
+    mosdns start -d /tmp -c /tmp/mosdns.yaml &
 fi
 sed "s/{DNSPORT}/$DNSPORT/g" /tmp/unbound.conf | sed "s/#RAWDNS//g" >/tmp/unbound_raw.conf
 if [ "$CNAUTO" = "yes" ] && [ "$CNFALL" = "yes" ]; then
@@ -594,7 +593,7 @@ if [ "$CNAUTO" = "yes" ] && [ "$CNFALL" = "yes" ]; then
 else
     sed -i "s/#pos_fetch//g" /tmp/unbound_raw.conf
 fi
-setpriv_run unbound -c /tmp/unbound_raw.conf -p
+unbound -c /tmp/unbound_raw.conf -p
 
 #Unexpected fallback while updating data
 echo "nameserver 127.0.0.1" >/etc/resolv.conf
