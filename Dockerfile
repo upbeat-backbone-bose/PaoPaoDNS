@@ -44,6 +44,13 @@ RUN apk add --no-cache hiredis libevent libgcc && apk upgrade --no-cache
 RUN if /src/mosdns version|grep kkkgo;then echo mosdns_check > /mosdns_check;else cp /mosdns_check /tmp/;fi
 RUN if /src/unbound -V|grep libhiredis;then echo unbound_check > /unbound_check;else cp /unbound_check /tmp/;fi
 RUN if /src/redis-server -v|grep build;then echo redis_check > /redis_check;else cp /redis_check /tmp/;fi
+# Set CAP_NET_BIND_SERVICE on unbound and mosdns in the builder stage so the
+# xattr is recorded in the image layer. Setting it later in the runtime
+# stage runs into "Invalid argument" because the runtime stage's COPY of
+# /src/ may land on a read-only or otherwise xattr-restricted layer.
+# apk add libcap first so the setcap binary is available.
+RUN apk add --no-cache libcap && \
+    setcap cap_net_bind_service=+ep /src/unbound /src/mosdns
 
 # Runtime stage mirrors builder's alpine:edge to match hiredis 1.3.0 ABI.
 # Full fix tracked in P0-7 (build prebuild binaries in-repo on alpine 3.21).
@@ -57,10 +64,10 @@ RUN apk update && \
     adduser -D -H unbound && \
     chown unbound:unbound /run/unbound && \
     chmod 750 /run/unbound && \
-    # Grant the unbound binary CAP_NET_BIND_SERVICE so it can listen on
-    # port 53/TCP+UDP after we drop root and switch to the unbound user.
-    # Grant the same to mosdns for the same reason.
-    setcap cap_net_bind_service=+ep /usr/sbin/unbound /usr/sbin/mosdns && \
+    # CAP_NET_BIND_SERVICE was already set on the binaries in the builder
+    # stage (see RUN above). Setting it in the runtime stage hits
+    # "Invalid argument" on overlayfs; builder-stage xattrs survive
+    # the COPY --from=builder into the final image.
     mv /usr/sbin/repositories /etc/apk/repositories && \
     rm -rf /var/cache/apk/*
 ARG DEVLOG_SW
