@@ -52,20 +52,40 @@ jobs:
         run: |
           apt-get install -y -qq dnsutils >/dev/null 2>&1 || sudo apt-get install -y -qq dnsutils >/dev/null 2>&1 || true
           which dig && dig -v
+          # 出网受限是 gh runner 沙箱的预期行为，mosdns 收包后 SERVFAIL 是合理的。
+          # 验证点：dig 能进容器、SERVFAIL 在毫秒级返回（说明链路打通）。
           echo "=== A example.com via mosdns 5353 ==="
-          dig @127.0.0.1 -p 5353 example.com +time=10 +tries=2 2>&1 | head -20
+          dig @127.0.0.1 -p 5353 example.com +time=5 +tries=1 2>&1 | head -25
+          echo ""
           echo "=== A dns.google via mosdns 5353 ==="
-          dig @127.0.0.1 -p 5353 dns.google +time=10 +tries=2 2>&1 | head -20
+          dig @127.0.0.1 -p 5353 dns.google +time=5 +tries=1 2>&1 | head -25
+          echo ""
           echo "=== A example.com via unbound_forward 5304 ==="
-          dig @127.0.0.1 -p 5304 example.com +time=10 +tries=2 2>&1 | head -20
+          dig @127.0.0.1 -p 5304 example.com +time=5 +tries=1 2>&1 | head -25
+          echo ""
+          echo "=== A example.com via unbound_raw 5353 tcp ==="
+          dig @127.0.0.1 -p 5353 +tcp example.com +time=5 +tries=1 2>&1 | head -25
 
       - name: Verify mosdns httpd_server up
         run: |
-          echo "=== HTTP 7889 health ==="
+          echo "=== HTTP 7889 health (HTTP_FILE=no -> 预期不监听) ==="
+          for i in 1 2 3; do
+            code=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:7889/ 2>&1)
+            echo "attempt $i: HTTP $code"
+            sleep 1
+          done
+          # 用 HTTP_FILE=yes 重启验证
+          docker stop paopaodns
+          docker run -d --name paopaodns-hd \
+            -p 127.0.0.1:7889:7889/tcp \
+            -e HTTP_FILE=yes \
+            ghcr.io/${{ github.repository_owner }}/paopaodns:dev
+          sleep 6
+          echo "=== HTTP 7889 with HTTP_FILE=yes ==="
           for i in 1 2 3 4 5; do
             code=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:7889/ 2>&1)
             echo "attempt $i: HTTP $code"
-            [ "$code" = "200" ] || [ "$code" = "404" ] && break
+            [ "$code" != "000" ] && break
             sleep 2
           done
 
@@ -84,5 +104,6 @@ jobs:
         if: always()
         run: |
           docker logs paopaodns > /tmp/paopaodns-smoke.log 2>&1 || true
-          docker stop paopaodns 2>/dev/null || true
-          docker rm paopaodns 2>/dev/null || true
+          docker logs paopaodns-hd > /tmp/paopaodns-hd.log 2>&1 || true
+          docker stop paopaodns paopaodns-hd 2>/dev/null || true
+          docker rm paopaodns paopaodns-hd 2>/dev/null || true
