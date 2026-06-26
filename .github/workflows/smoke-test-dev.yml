@@ -22,20 +22,13 @@ permissions:
   contents: read
   packages: read
 
-# 阻止多个 smoke test 并发跑
-concurrency:
-  group: smoke-test-${{ github.event.workflow_run.head_branch || github.ref }}
-  cancel-in-progress: false
-
 jobs:
   smoke:
-    # 仅在 docker-test-amd64-dev 跑成功后才执行 smoke。
-    # workflow_run 触发时 event 是 workflow_run，不是 push。
-    # 额外限制：仅 main 分支 build 成功才触发（避免 feature 分支 dev 推送跑 smoke）。
+    # 仅当 workflow_run 触发且 dev build 成功；其他触发方式（workflow_dispatch /
+    # push 到 smoke-test/**）不受此限制。
     if: >
-      (github.event_name != 'workflow_run') ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
