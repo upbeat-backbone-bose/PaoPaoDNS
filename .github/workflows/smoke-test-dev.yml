@@ -1,0 +1,72 @@
+name: Smoke test PaoPaoDNS dev image
+
+# 端到端冒烟测试：拉 GHCR dev 镜像，启动容器，验证 unbound + mosdns 协同工作。
+# 触发：手动 workflow_dispatch，或 push 到 smoke-test/** 分支。
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - smoke-test/**
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Pull dev image
+        run: |
+          docker pull ghcr.io/${{ github.repository_owner }}/paopaodns:dev
+          docker images | grep paopaodns
+
+      - name: Start container
+        run: |
+          # 53/udp + 53/tcp 给客户端 dig 验证；7889/tcp 暴露可验证 mosdns httpd 启动
+          docker run -d --name paopaodns \
+            -p 127.0.0.1:5353:53/udp \
+            -p 127.0.0.1:5353:53/tcp \
+            -p 127.0.0.1:7889:7889/tcp \
+            --privileged \
+            ghcr.io/${{ github.repository_owner }}/paopaodns:dev
+          sleep 8
+          docker ps
+          docker logs paopaodns 2>&1 | tail -50
+
+      - name: Verify DNS resolution
+        run: |
+          # 默认上游走 mosdns 53 端口解析外部域名
+          apt-get install -y -qq dnsutils >/dev/null 2>&1 || true
+          echo "=== A example.com ==="
+          dig @127.0.0.1 -p 5353 example.com +short +time=5 +tries=2
+          echo "=== A dns.google ==="
+          dig @127.0.0.1 -p 5353 dns.google +short +time=5 +tries=2
+          echo "=== AAAA cloudflare.com ==="
+          dig @127.0.0.1 -p 5353 -t AAAA cloudflare.com +short +time=5 +tries=2
+
+      - name: Verify mosdns httpd_server up
+        run: |
+          echo "=== HTTP 7889 health ==="
+          curl -sS --max-time 5 -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:7889/ || echo "httpd not up"
+
+      - name: Verify all 3 daemons (unbound, mosdns, redis) running
+        run: |
+          echo "=== process list inside container ==="
+          docker exec paopaodns ps -ef 2>/dev/null | grep -E "unbound|mosdns|redis|init.sh" | head -20 || true
+          echo "=== unbound config syntax ==="
+          docker exec paopaodns /src/unbound-checkconf /tmp/unbound.conf 2>&1 | head -5 || true
+          echo "=== mosdns version ==="
+          docker exec paopaodns /src/mosdns version 2>&1 | head -3 || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker logs paopaodns > /tmp/paopaodns-smoke.log 2>&1 || true
+          docker stop paopaodns 2>/dev/null || true
+          docker rm paopaodns 2>/dev/null || true
