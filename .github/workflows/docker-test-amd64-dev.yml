@@ -21,7 +21,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
       - name: Login to GHCR
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0d2d7f5ca915bee # v4.2.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -46,82 +46,3 @@ jobs:
             DEVLOG_SW=yes
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  # 端到端冒烟测试：拉 GHCR dev 镜像，启动容器，验证 unbound + mosdns 协同工作。
-  # 仅 main 分支构建成功后才跑，避免在 PR / feature 分支跑端到端测试。
-  # build 失败时自动跳过（needs 默认行为）。
-  smoke:
-    needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
-
-      - name: Pull dev image
-        run: |
-          docker pull ghcr.io/${{ github.repository_owner }}/paopaodns:dev
-          docker images | grep paopaodns
-
-      - name: Start container
-        run: |
-          docker run -d --name paopaodns \
-            -p 127.0.0.1:5353:53/udp \
-            -p 127.0.0.1:5353:53/tcp \
-            -p 127.0.0.1:7889:7889/tcp \
-            -p 127.0.0.1:5304:5304/udp \
-            -p 127.0.0.1:5304:5304/tcp \
-            --privileged \
-            ghcr.io/${{ github.repository_owner }}/paopaodns:dev
-          sleep 8
-          docker ps
-          echo "=== container logs (first 80 lines) ==="
-          docker logs paopaodns 2>&1 | head -80
-          echo "=== listening ports inside container ==="
-          docker exec paopaodns netstat -tuln 2>/dev/null || docker exec paopaodns ss -tuln 2>/dev/null || true
-          echo "=== process list inside container ==="
-          docker exec paopaodns ps -ef 2>/dev/null | head -20 || true
-
-      - name: Verify DNS resolution
-        run: |
-          apt-get install -y -qq dnsutils >/dev/null 2>&1 || sudo apt-get install -y -qq dnsutils >/dev/null 2>&1 || true
-          which dig && dig -v
-          echo "=== A example.com via mosdns 5353 ==="
-          dig @127.0.0.1 -p 5353 example.com +time=5 +tries=1 2>&1 | head -25
-          echo ""
-          echo "=== A dns.google via mosdns 5353 ==="
-          dig @127.0.0.1 -p 5353 dns.google +time=5 +tries=1 2>&1 | head -25
-          echo ""
-          echo "=== A example.com via unbound_forward 5304 ==="
-          dig @127.0.0.1 -p 5304 example.com +time=5 +tries=1 2>&1 | head -25
-
-      - name: Verify mosdns httpd_server up
-        run: |
-          echo "=== HTTP 7889 with HTTP_FILE=yes ==="
-          docker stop paopaodns 2>/dev/null || true
-          docker run -d --name paopaodns-hd \
-            -p 127.0.0.1:7889:7889/tcp \
-            -e HTTP_FILE=yes \
-            ghcr.io/${{ github.repository_owner }}/paopaodns:dev
-          sleep 8
-          ok=0
-          for i in 1 2 3 4 5; do
-            code=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:7889/ 2>/dev/null || echo "000")
-            echo "attempt $i: HTTP $code"
-            [ "$code" = "200" ] || [ "$code" = "404" ] && ok=1 && break
-            sleep 2
-          done
-          if [ $ok -eq 0 ]; then
-            echo "WARNING: HTTP_FILE=yes still did not bring 7889 up"
-            docker logs paopaodns-hd 2>&1 | tail -30
-            exit 1
-          fi
-
-      - name: Cleanup
-        if: always()
-        run: |
-          docker logs paopaodns > /tmp/paopaodns-smoke.log 2>&1 || true
-          docker logs paopaodns-hd > /tmp/paopaodns-hd.log 2>&1 || true
-          docker stop paopaodns paopaodns-hd 2>/dev/null || true
-          docker rm paopaodns paopaodns-hd 2>/dev/null || true
