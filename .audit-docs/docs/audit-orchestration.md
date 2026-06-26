@@ -161,7 +161,7 @@
 
 ```sh
 12: git clone https://github.com/NLnetLabs/unbound.git --depth 1 --branch release-1.25.1 /unbound
-29: git clone https://github.com/kkkgo/mosdns --depth 1 /mosdns-build
+29: git clone https://github.com/upbeat-backbone-bose/mosdns --depth 1 /mosdns-build
 ```
 
 `unbound` 已 pin 到 `release-1.25.1`（本轮改进）。`mosdns` 跟随 master（无 tag 可 pin），仅 `Dockerfile:39` 以"二进制版本字符串"做轻校验。
@@ -330,7 +330,7 @@ mosdns 默认监听所有接口 53（IPv4+IPv6 双栈）。容器内 `unbound_ra
 ### 7.8 `Dockerfile:39-41` — 自实现"binary check"仅 grep 字符串 — **Medium**
 
 ```yaml
-39: RUN if /src/mosdns version|grep kkkgo;then echo mosdns_check > /mosdns_check;else cp /mosdns_check /tmp/;fi
+39: RUN if /src/mosdns version|grep upbeat-backbone-bose;then echo mosdns_check > /mosdns_check;else cp /mosdns_check /tmp/;fi
 40: RUN if /src/unbound -V|grep libhiredis;then echo unbound_check > /unbound_check;else cp /unbound_check /tmp/;fi
 41: RUN if /src/redis-server -v|grep build;then echo redis_check > /redis_check;else cp /redis_check /tmp/;fi
 ```

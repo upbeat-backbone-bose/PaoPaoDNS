@@ -326,7 +326,7 @@ dnscrypt:
 - https://dnscrypt.info/  
 
 mosdns:
-- https://github.com/kkkgo/mosdns
+- https://github.com/upbeat-backbone-bose/mosdns
 
 Country-only-cn-private.mmdb:
 - https://github.com/kkkgo/Country-only-cn-private.mmdb

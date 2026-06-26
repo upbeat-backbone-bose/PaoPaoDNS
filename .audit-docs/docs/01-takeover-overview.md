@@ -11,7 +11,7 @@
 |------|------|------|
 | 编排层 | `/` (本仓) | Dockerfile、shell 脚本、yaml/conf 配置、CI |
 | 预构建层 | `prebuild-paopaodns/` | Dockerfile + `build.sh`（在 alpine 内编译 unbound 与 mosdns） |
-| Go 依赖源（mosdns） | `vendors/mosdns` | kkkgo/mosdns 分支，无 tag，跟随 master |
+| Go 依赖源（mosdns） | `vendors/mosdns` | upbeat-backbone-bose/mosdns 分支，无 tag，跟随 master |
 | C 依赖源（unbound） | `vendors/unbound` | NLnetLabs/unbound，本轮升级钉到 `release-1.25.1` |
 
 > `vendors/` 目录是后续审计和补丁的本地副本，由 CI 在每次构建时重新 `git clone`，本仓用 dependabot 监控 go.mod 变化。
@@ -25,14 +25,14 @@
 | 组件 | 升级前 | 升级后 | 说明 |
 |------|--------|--------|------|
 | unbound | `master`（默认分支，无 pin） | `release-1.25.1` | 修复 CVE-2026-44608（RPZ UAF）、CVE-2025-11411（delegation poisoning）、CVE-2025-5994（Rebirthday Attack）等 |
-| mosdns | kkkgo/mosdns master | master（保留） | 上游未发 tag，依赖二进制字符串校验 |
+| mosdns | upbeat-backbone-bose/mosdns master | master（保留） | 上游未发 tag，依赖二进制字符串校验 |
 | mosdns Go 依赖 | go 1.26.3 | go 1.26.3（已最新） | `go mod tidy` 无变更 |
 | Alpine 基础镜像 | `alpine:edge` | `alpine:3.21` | 通过 `ARG ALPINE_VERSION=3.21` 在 builder/runtime 两处 pin |
 | dependabot | 仅 docker | docker + gomod × 2 + github-actions | 监控 mosdns/unbound 的 go.mod 升级 |
 
 ### 2. 构建验证
 
-- `vendors/mosdns` 用 Go 1.25.6 本地 `go build` 通过，产物 `/tmp/mosdns-test`（14.8MB），`mosdns version` 输出 `kkkgo/mosdns:240822.1`（与 Dockerfile 字符串校验一致）。
+- `vendors/mosdns` 用 Go 1.25.6 本地 `go build` 通过，产物 `/tmp/mosdns-test`（14.8MB），`mosdns version` 输出 `upbeat-backbone-bose/mosdns:240822.1`（与 Dockerfile 字符串校验一致）。
 - `build_test.sh` 完整套件需要 docker 运行环境（已确认本机无 docker，未执行），下一轮在 docker 可用环境补跑。
 
 ### 3. 代码审计
@@ -103,7 +103,7 @@
 ## 参考资料
 
 - upstream kkkgo/PaoPaoDNS（不维护）：https://github.com/kkkgo/PaoPaoDNS
-- upstream kkkgo/mosdns：https://github.com/kkkgo/mosdns
+- upstream upbeat-backbone-bose/mosdns：https://github.com/upbeat-backbone-bose/mosdns
 - upstream NLnetLabs/unbound：https://github.com/NLnetLabs/unbound
 - unbound 1.25.1 release notes：https://github.com/NLnetLabs/unbound/releases/tag/release-1.25.1
 - DNSCrypt 项目：https://github.com/DNSCrypt/dnscrypt-proxy

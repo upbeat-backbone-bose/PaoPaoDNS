@@ -29,14 +29,14 @@ mv /usr/sbin/unbound /src/
 mv /usr/sbin/unbound-checkconf /src/
 
 # build mosdns
-# kkkgo/mosdns does not publish release tags; the binary identity check
+# upbeat-backbone-bose/mosdns does not publish release tags; the binary identity check
 # in Dockerfile relies on the kkkgo prefix, so we follow upstream master.
 # mosdns's go.mod requires Go >= 1.26.3; alpine 3.21's `go` package is
 # 1.23.x, so we must let the Go toolchain auto-download the required
 # version. GOTOOLCHAIN=auto is the default for go >= 1.21 but the
 # alpine package sets it to local; export it explicitly.
 mkdir -p /mosdns-build
-git clone https://github.com/kkkgo/mosdns --depth 1 /mosdns-build
+git clone https://github.com/upbeat-backbone-bose/mosdns --depth 1 /mosdns-build
 cd /mosdns-build || exit
 GOTOOLCHAIN=auto go build -ldflags "-s -w" -trimpath -o /src/mosdns
 
