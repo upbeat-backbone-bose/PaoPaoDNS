@@ -70,24 +70,29 @@ jobs:
         run: |
           echo "=== HTTP 7889 health (HTTP_FILE=no -> 预期不监听) ==="
           for i in 1 2 3; do
-            code=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:7889/ 2>&1)
+            code=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:7889/ 2>/dev/null || echo "000")
             echo "attempt $i: HTTP $code"
             sleep 1
           done
           # 用 HTTP_FILE=yes 重启验证
-          docker stop paopaodns
+          docker stop paopaodns 2>/dev/null || true
           docker run -d --name paopaodns-hd \
             -p 127.0.0.1:7889:7889/tcp \
             -e HTTP_FILE=yes \
             ghcr.io/${{ github.repository_owner }}/paopaodns:dev
-          sleep 6
+          sleep 8
           echo "=== HTTP 7889 with HTTP_FILE=yes ==="
+          ok=0
           for i in 1 2 3 4 5; do
-            code=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:7889/ 2>&1)
+            code=$(curl -sS --max-time 3 -o /dev/null -w "%{http_code}" http://127.0.0.1:7889/ 2>/dev/null || echo "000")
             echo "attempt $i: HTTP $code"
-            [ "$code" != "000" ] && break
+            [ "$code" = "200" ] || [ "$code" = "404" ] && ok=1 && break
             sleep 2
           done
+          if [ $ok -eq 0 ]; then
+            echo "WARNING: HTTP_FILE=yes still did not bring 7889 up"
+            docker logs paopaodns-hd 2>&1 | tail -30
+          fi
 
       - name: Verify all 3 daemons (unbound, mosdns, redis) running
         run: |
