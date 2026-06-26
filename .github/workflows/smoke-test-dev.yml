@@ -1,22 +1,13 @@
 name: Smoke test PaoPaoDNS dev image
 
 # 端到端冒烟测试：拉 GHCR dev 镜像，启动容器，验证 unbound + mosdns 协同工作。
-# 触发：
-#   - workflow_dispatch：手动
-#   - push 到 smoke-test/** 分支
-#   - workflow_run：当 docker-test-amd64-dev workflow 跑完后自动触发，
-#     且 dev 镜像构建成功（仅 main 分支）。失败即阻断后续 dev tag 覆盖。
+# 触发：手动 workflow_dispatch，或 push 到 smoke-test/** 分支。
 
 on:
   workflow_dispatch:
   push:
     branches:
       - smoke-test/**
-  workflow_run:
-    workflows:
-      - docker-test-amd64-dev
-    types:
-      - completed
 
 permissions:
   contents: read
@@ -24,11 +15,6 @@ permissions:
 
 jobs:
   smoke:
-    # 仅当 workflow_run 触发且 dev build 成功；其他触发方式（workflow_dispatch /
-    # push 到 smoke-test/**）不受此限制。
-    if: >
-      github.event_name != 'workflow_run' ||
-      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
