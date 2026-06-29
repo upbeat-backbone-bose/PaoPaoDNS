@@ -1,5 +1,6 @@
 #!/bin/sh
 set -e
+# cache-bust: upbeat-backbone-bose fork migration
 
 # add tools
 apk update
