@@ -66,7 +66,7 @@ RUN cp /src/Country-only-cn-private.mmdb.xz /tmp/ &&\
     cp /src/redis-server /tmp/
 # build binary check
 RUN apk add --no-cache hiredis libevent libgcc && apk upgrade --no-cache
-RUN if /src/mosdns version|grep upbeat-backbone-bose;then echo mosdns_check > /mosdns_check;else echo "ERROR: mosdns version mismatch" && exit 1;fi
+RUN if /src/mosdns version|grep -E "kkkgo|upbeat-backbone-bose";then echo mosdns_check > /mosdns_check;else echo "ERROR: mosdns version mismatch" && exit 1;fi
 RUN if /src/unbound -V|grep libhiredis;then echo unbound_check > /unbound_check;else cp /unbound_check /tmp/;fi
 RUN if /src/redis-server -v|grep build;then echo redis_check > /redis_check;else cp /redis_check /tmp/;fi
 
